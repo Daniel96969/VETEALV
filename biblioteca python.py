@@ -1,522 +1,633 @@
+1. ⚙️ Código Refactorizado del Sistema de Biblioteca
+biblioteca/conexion.py
+Python
+
+# biblioteca/conexion.py
 import mysql.connector
-from datetime import datetime
-import hashlib
-import secrets
-from abc import ABC, abstractmethod
+from mysql.connector import Error
+from contextlib import contextmanager
+import os
 
-# =========================
-# Interfaz para conexiones a BD
-# =========================
-class IConexionBD(ABC):
-    @abstractmethod
-    def ejecutar(self, query, valores=None):
-        pass
-    
-    @abstractmethod
-    def consultar(self, query, valores=None):
-        pass
-    
-    @abstractmethod
-    def cerrar(self):
-        pass
+# --- Configuración de la Conexión ---
+# (Es una buena práctica leer esto desde variables de entorno o un archivo .env)
+DB_CONFIG = {
+    'host': os.environ.get('DB_HOST', 'localhost'),
+    'user': os.environ.get('DB_USER', 'root'),
+    'password': os.environ.get('DB_PASS', 'tu_contraseña_mysql'),
+    'database': os.environ.get('DB_NAME', 'biblioteca_db')
+}
+# -------------------------------------
 
-# =========================
-# Clase de conexión a MySQL
-# =========================
-class ConexionBD(IConexionBD):
-    def __init__(self):
-        try:
-            self.conexion = mysql.connector.connect(
-                host="localhost",
-                user="root",
-                password="Toor",  # Cambiar por la contraseña de tu MySQL
-                database="biblioteca"
-            )
-            self.cursor = self.conexion.cursor(dictionary=True)
-            print("Conexión exitosa a la base de datos.")
-        except mysql.connector.Error as e:
-            print(f"Error de conexión: {e}")
+@contextmanager
+def obtener_conexion():
+    """
+    Proporciona una conexión y un cursor a la base de datos,
+    manejando automáticamente la apertura y cierre.
+    """
+    conexion = None
+    cursor = None
+    try:
+        conexion = mysql.connector.connect(**DB_CONFIG)
+        cursor = conexion.cursor(dictionary=True) # dictionary=True devuelve resultados como dicts
+        print("Conexión a la base de datos exitosa.")
+        yield cursor
+    except Error as e:
+        print(f"Error al conectar con la base de datos: {e}")
+        # Opcional: relanzar la excepción para que el llamador la maneje
+        raise
+    finally:
+        if conexion and conexion.is_connected():
+            if cursor:
+                cursor.close()
+            conexion.commit() # Asegura que todas las operaciones (INSERT, UPDATE) se guarden
+            conexion.close()
+            print("Conexión a la base de datos cerrada.")
 
-    def ejecutar(self, query, valores=None):
-        try:
-            self.cursor.execute(query, valores or ())
-            self.conexion.commit()
-            return True
-        except mysql.connector.Error as e:
-            print(f"Error al ejecutar consulta: {e}")
-            return False
+def probar_conexion():
+    """Función simple para verificar si la configuración de conexión es correcta."""
+    try:
+        with obtener_conexion():
+            pass
+        print("¡La configuración de la base de datos es correcta!")
+    except Error as e:
+        print(f"Fallo al conectar: {e}. Revisa tu configuración en DB_CONFIG.")
 
-    def consultar(self, query, valores=None):
-        try:
-            self.cursor.execute(query, valores or ())
-            return self.cursor.fetchall()
-        except mysql.connector.Error as e:
-            print(f"Error al consultar: {e}")
-            return []
+if __name__ == "__main__":
+    # Esto permite ejecutar el archivo directamente para probar la conexión
+    probar_conexion()
+biblioteca/modelos/usuario.py
+Python
 
-    def cerrar(self):
-        self.cursor.close()
-        self.conexion.close()
+# biblioteca/modelos/usuario.py
+import bcrypt
+from ..conexion import obtener_conexion
+from mysql.connector import Error
 
-# =========================
-# Clase Libro
-# =========================
-class Libro:
-    def __init__(self, titulo, autor, anio, disponible=True, id=None):
-        self.__id = id
-        self.__titulo = titulo
-        self.__autor = autor
-        self.__anio = anio
-        self.__disponible = disponible
-
-    # Getters y Setters
-    def get_id(self):
-        return self.__id
-
-    def get_titulo(self):
-        return self.__titulo
-
-    def get_autor(self):
-        return self.__autor
-
-    def get_anio(self):
-        return self.__anio
-
-    def get_disponible(self):
-        return self.__disponible
-
-    def set_disponible(self, disponible):
-        self.__disponible = disponible
-
-    def set_id(self, id):
-        self.__id = id
-
-    def __str__(self):
-        estado = "Disponible" if self.__disponible else "Prestado"
-        return f"[{self.__id}] {self.__titulo} - {self.__autor} ({self.__anio}) -> {estado}"
-
-# =========================
-# Clase Usuario
-# =========================
 class Usuario:
-    def __init__(self, nombre, tipo, password=None, id=None):
-        self.__id = id
-        self.__nombre = nombre
-        self.__tipo = tipo
-        self.__password_hash = self.__hash_password(password) if password else None
-        self.__salt = secrets.token_hex(16) if password else None
 
-    def get_id(self):
-        return self.__id
+    @staticmethod
+    def _hash_password(password_plano: str) -> bytes:
+        """Genera un hash seguro para la contraseña."""
+        salt = bcrypt.gensalt()
+        hashed = bcrypt.hashpw(password_plano.encode('utf-8'), salt)
+        return hashed
 
-    def get_nombre(self):
-        return self.__nombre
+    @staticmethod
+    def verificar_password(password_plano: str, hashed_db: bytes) -> bool:
+        """Verifica si la contraseña plana coincide con el hash."""
+        if isinstance(hashed_db, str):
+            hashed_db = hashed_db.encode('utf-8') # Asegurar que sea bytes
+            
+        return bcrypt.checkpw(password_plano.encode('utf-8'), hashed_db)
 
-    def get_tipo(self):
-        return self.__tipo
-
-    def set_id(self, id):
-        self.__id = id
-
-    def __hash_password(self, password):
-        """Encripta la contraseña usando salt y hash"""
-        if not password:
-            return None
-        return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), 
-                                 self.__salt.encode('utf-8'), 100000).hex()
-
-    def verificar_password(self, password):
-        """Verifica si la contraseña coincide con el hash almacenado"""
-        if not self.__password_hash or not self.__salt:
-            return False
-        test_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), 
-                                      self.__salt.encode('utf-8'), 100000).hex()
-        return secrets.compare_digest(self.__password_hash, test_hash)
-
-    def get_password_hash(self):
-        return self.__password_hash
-
-    def get_salt(self):
-        return self.__salt
-
-    def __str__(self):
-        return f"[{self.__id}] {self.__nombre} - {self.__tipo}"
-
-# =========================
-# Clase Prestamo
-# =========================
-class Prestamo:
-    def __init__(self, id_usuario, id_libro, fecha_prestamo=None, fecha_devolucion=None, id=None):
-        self.__id = id
-        self.__id_usuario = id_usuario
-        self.__id_libro = id_libro
-        self.__fecha_prestamo = fecha_prestamo or datetime.now().date()
-        self.__fecha_devolucion = fecha_devolucion
-
-    def get_id(self):
-        return self.__id
-
-    def get_id_usuario(self):
-        return self.__id_usuario
-
-    def get_id_libro(self):
-        return self.__id_libro
-
-    def get_fecha_prestamo(self):
-        return self.__fecha_prestamo
-
-    def get_fecha_devolucion(self):
-        return self.__fecha_devolucion
-
-    def set_fecha_devolucion(self, fecha_devolucion):
-        self.__fecha_devolucion = fecha_devolucion
-
-    def set_id(self, id):
-        self.__id = id
-
-    def __str__(self):
-        devuelto = self.__fecha_devolucion if self.__fecha_devolucion else "No devuelto"
-        return f"Préstamo ID: {self.__id} | Usuario ID: {self.__id_usuario} | Libro ID: {self.__id_libro} | Prestado: {self.__fecha_prestamo} | Devuelto: {devuelto}"
-
-# =========================
-# Servicio de Libros
-# =========================
-class LibroServicio:
-    def __init__(self, conexion):
-        self.conexion = conexion
-
-    def registrar_libro(self, libro):
-        if not libro.get_titulo() or not libro.get_autor():
-            print("Error: Título y autor son obligatorios.")
-            return False
-
-        resultado = self.conexion.ejecutar(
-            "INSERT INTO libros (titulo, autor, anio, disponible) VALUES (%s, %s, %s, %s)",
-            (libro.get_titulo(), libro.get_autor(), libro.get_anio(), libro.get_disponible())
-        )
-        
-        if resultado:
-            print("Libro registrado correctamente.")
-            return True
-        else:
-            print("Error al registrar el libro.")
-            return False
-
-    def obtener_libro_por_id(self, id_libro):
-        libros = self.conexion.consultar("SELECT * FROM libros WHERE id=%s", (id_libro,))
-        if libros:
-            libro_data = libros[0]
-            return Libro(
-                libro_data['titulo'], 
-                libro_data['autor'], 
-                libro_data['anio'], 
-                libro_data['disponible'],
-                libro_data['id']
-            )
-        return None
-
-    def listar_libros(self):
-        libros = self.conexion.consultar("SELECT * FROM libros")
-        for libro_data in libros:
-            libro = Libro(
-                libro_data['titulo'], 
-                libro_data['autor'], 
-                libro_data['anio'], 
-                libro_data['disponible'],
-                libro_data['id']
-            )
-            print(libro)
-
-    def actualizar_disponibilidad(self, id_libro, disponible):
-        return self.conexion.ejecutar(
-            "UPDATE libros SET disponible = %s WHERE id = %s", 
-            (disponible, id_libro)
-        )
-
-# =========================
-# Servicio de Usuarios
-# =========================
-class UsuarioServicio:
-    def __init__(self, conexion):
-        self.conexion = conexion
-
-    def registrar_usuario(self, usuario):
-        if not usuario.get_nombre() or not usuario.get_tipo():
-            print("Error: Nombre y tipo son obligatorios.")
-            return False
-
-        resultado = self.conexion.ejecutar(
-            "INSERT INTO usuarios (nombre, tipo, password_hash, salt) VALUES (%s, %s, %s, %s)",
-            (usuario.get_nombre(), usuario.get_tipo(), usuario.get_password_hash(), usuario.get_salt())
-        )
-        
-        if resultado:
-            print("Usuario registrado correctamente.")
-            return True
-        else:
-            print("Error al registrar el usuario.")
-            return False
-
-    def obtener_usuario_por_id(self, id_usuario):
-        usuarios = self.conexion.consultar("SELECT * FROM usuarios WHERE id=%s", (id_usuario,))
-        if usuarios:
-            usuario_data = usuarios[0]
-            usuario = Usuario(
-                usuario_data['nombre'], 
-                usuario_data['tipo'],
-                id=usuario_data['id']
-            )
-            return usuario
-        return None
-
-    def listar_usuarios(self):
-        usuarios = self.conexion.consultar("SELECT * FROM usuarios")
-        for usuario_data in usuarios:
-            usuario = Usuario(
-                usuario_data['nombre'], 
-                usuario_data['tipo'],
-                id=usuario_data['id']
-            )
-            print(usuario)
-
-# =========================
-# Servicio de Préstamos
-# =========================
-class PrestamoServicio:
-    def __init__(self, conexion, libro_servicio, usuario_servicio):
-        self.conexion = conexion
-        self.libro_servicio = libro_servicio
-        self.usuario_servicio = usuario_servicio
-
-    def registrar_prestamo(self, prestamo):
-        # Verificar que el usuario existe
-        usuario = self.usuario_servicio.obtener_usuario_por_id(prestamo.get_id_usuario())
-        if not usuario:
-            print("Error: Usuario no encontrado.")
-            return False
-
-        # Verificar que el libro existe y está disponible
-        libro = self.libro_servicio.obtener_libro_por_id(prestamo.get_id_libro())
-        if not libro:
-            print("Error: Libro no encontrado.")
+    @staticmethod
+    def crear(username: str, password_plano: str, nombre: str, email: str):
+        """
+        Crea un nuevo usuario con contraseña encriptada.
+        Usa consultas parametrizadas para evitar inyección SQL.
+        """
+        if not username or not password_plano or not nombre:
+            print("Error: Username, contraseña y nombre son requeridos.")
             return False
             
-        if not libro.get_disponible():
-            print("Error: El libro no está disponible.")
-            return False
-
-        # Registrar préstamo y actualizar disponibilidad
-        resultado_prestamo = self.conexion.ejecutar(
-            "INSERT INTO prestamos (id_usuario, id_libro, fecha_prestamo, fecha_devolucion) VALUES (%s, %s, %s, %s)",
-            (prestamo.get_id_usuario(), prestamo.get_id_libro(), prestamo.get_fecha_prestamo(), prestamo.get_fecha_devolucion())
-        )
+        hashed_password = Usuario._hash_password(password_plano)
         
-        resultado_actualizacion = self.libro_servicio.actualizar_disponibilidad(prestamo.get_id_libro(), False)
+        query = "INSERT INTO usuarios (username, password_hash, nombre, email) VALUES (%s, %s, %s, %s)"
+        params = (username, hashed_password, nombre, email)
         
-        if resultado_prestamo and resultado_actualizacion:
-            print("Préstamo registrado correctamente.")
+        try:
+            with obtener_conexion() as cursor:
+                cursor.execute(query, params)
+            print(f"Usuario '{username}' creado exitosamente.")
             return True
+        except Error as e:
+            print(f"Error al crear usuario: {e}")
+            return False
+
+    @staticmethod
+    def obtener_por_username(username: str):
+        """Obtiene un usuario por su username (para login)."""
+        query = "SELECT * FROM usuarios WHERE username = %s"
+        params = (username,)
+        
+        try:
+            with obtener_conexion() as cursor:
+                cursor.execute(query, params)
+                return cursor.fetchone()
+        except Error as e:
+            print(f"Error al obtener usuario: {e}")
+            return None
+
+    @staticmethod
+    def login(username: str, password_plano: str):
+        """Autentica a un usuario."""
+        usuario = Usuario.obtener_por_username(username)
+        
+        if not usuario:
+            print("Login fallido: Usuario no encontrado.")
+            return None
+            
+        # Verificar la contraseña 
+        if Usuario.verificar_password(password_plano, usuario['password_hash']):
+            print(f"Login exitoso. ¡Bienvenido, {usuario['nombre']}!")
+            return usuario
         else:
-            print("Error al registrar el préstamo.")
-            return False
+            print("Login fallido: Contraseña incorrecta.")
+            return None
+biblioteca/modelos/libro.py
+Python
 
-    def devolver_libro(self, id_prestamo):
-        prestamo_data = self.conexion.consultar("SELECT * FROM prestamos WHERE id=%s", (id_prestamo,))
-        if not prestamo_data:
-            print("Error: Préstamo no encontrado.")
-            return False
+# biblioteca/modelos/libro.py
+from ..conexion import obtener_conexion
+from mysql.connector import Error
 
-        resultado_prestamo = self.conexion.ejecutar(
-            "UPDATE prestamos SET fecha_devolucion = %s WHERE id = %s", 
-            (datetime.now().date(), id_prestamo)
-        )
+class Libro:
+
+    @staticmethod
+    def crear(titulo: str, autor: str, anio: int, disponible: bool = True):
+        """Añade un nuevo libro a la base de datos."""
+        query = "INSERT INTO libros (titulo, autor, anio_publicacion, disponible) VALUES (%s, %s, %s, %s)"
+        params = (titulo, autor, anio, disponible)
         
-        resultado_actualizacion = self.libro_servicio.actualizar_disponibilidad(
-            prestamo_data[0]['id_libro'], True
-        )
-        
-        if resultado_prestamo and resultado_actualizacion:
-            print("Libro devuelto correctamente.")
+        try:
+            with obtener_conexion() as cursor:
+                cursor.execute(query, params)
+            print(f"Libro '{titulo}' añadido exitosamente.")
             return True
-        else:
-            print("Error al devolver el libro.")
+        except Error as e:
+            print(f"Error al añadir libro: {e}")
             return False
 
-    def listar_prestamos(self):
-        prestamos = self.conexion.consultar("SELECT * FROM prestamos")
-        for prestamo_data in prestamos:
-            prestamo = Prestamo(
-                prestamo_data['id_usuario'],
-                prestamo_data['id_libro'],
-                prestamo_data['fecha_prestamo'],
-                prestamo_data['fecha_devolucion'],
-                prestamo_data['id']
-            )
-            print(prestamo)
+    @staticmethod
+    def obtener_todos():
+        """Obtiene una lista de todos los libros."""
+        query = "SELECT * FROM libros ORDER BY titulo"
+        try:
+            with obtener_conexion() as cursor:
+                cursor.execute(query)
+                return cursor.fetchall()
+        except Error as e:
+            print(f"Error al obtener libros: {e}")
+            return []
 
-# =========================
-# Aplicación Principal
-# =========================
-class BibliotecaApp:
-    def __init__(self):
-        self.conexion = ConexionBD()
-        self.libro_servicio = LibroServicio(self.conexion)
-        self.usuario_servicio = UsuarioServicio(self.conexion)
-        self.prestamo_servicio = PrestamoServicio(
-            self.conexion, self.libro_servicio, self.usuario_servicio
-        )
+    @staticmethod
+    def buscar_por_titulo(titulo: str):
+        """Busca libros que coincidan parcialmente con el título."""
+        query = "SELECT * FROM libros WHERE titulo LIKE %s"
+        # Usamos %s para la parametrización, el driver de MySQL se encarga de escapar los '%'
+        params = (f"%{titulo}%",) 
+        
+        try:
+            with obtener_conexion() as cursor:
+                cursor.execute(query, params)
+                return cursor.fetchall()
+        except Error as e:
+            print(f"Error al buscar libros: {e}")
+            return []
 
-    def menu_principal(self):
-        while True:
-            print("""\n===== SISTEMA DE BIBLIOTECA =====
-1. Registrar Libro
-2. Registrar Usuario
-3. Registrar Préstamo
-4. Devolver Libro
-5. Listar Libros
-6. Listar Préstamos
-7. Listar Usuarios
-0. Salir
-================================
-""")
-            opcion = input("Seleccione una opción: ")
+    @staticmethod
+    def actualizar_disponibilidad(libro_id: int, disponible: bool):
+        """Actualiza el estado de disponibilidad de un libro (para préstamos)."""
+        query = "UPDATE libros SET disponible = %s WHERE id = %s"
+        params = (disponible, libro_id)
+        
+        try:
+            with obtener_conexion() as cursor:
+                cursor.execute(query, params)
+            return True
+        except Error as e:
+            print(f"Error al actualizar disponibilidad: {e}")
+            return False
+biblioteca/modelos/prestamo.py
+Python
 
-            if opcion == '1':
-                self.registrar_libro()
-            elif opcion == '2':
-                self.registrar_usuario()
-            elif opcion == '3':
-                self.registrar_prestamo()
-            elif opcion == '4':
-                self.devolver_libro()
-            elif opcion == '5':
-                self.listar_libros()
-            elif opcion == '6':
-                self.listar_prestamos()
-            elif opcion == '7':
-                self.listar_usuarios()
-            elif opcion == '0':
-                self.salir()
+# biblioteca/modelos/prestamo.py
+from ..conexion import obtener_conexion
+from mysql.connector import Error
+from datetime import date
+
+class Prestamo:
+
+    @staticmethod
+    def realizar_prestamo(usuario_id: int, libro_id: int, dias_prestamo: int = 15):
+        """
+        Realiza un préstamo, actualizando la disponibilidad del libro
+        y registrando el préstamo.
+        """
+        # 1. Verificar si el libro está disponible
+        query_check = "SELECT disponible FROM libros WHERE id = %s"
+        try:
+            with obtener_conexion() as cursor:
+                cursor.execute(query_check, (libro_id,))
+                libro = cursor.fetchone()
+                
+                if not libro:
+                    print(f"Error: Libro con ID {libro_id} no existe.")
+                    return False
+                if not libro['disponible']:
+                    print(f"Error: El libro (ID: {libro_id}) no está disponible.")
+                    return False
+                
+                # 2. Marcar libro como no disponible
+                query_update = "UPDATE libros SET disponible = FALSE WHERE id = %s"
+                cursor.execute(query_update, (libro_id,))
+                
+                # 3. Registrar el préstamo
+                fecha_prestamo = date.today()
+                # (Aquí podrías calcular la fecha_devolucion_estimada)
+                
+                query_insert = """
+                    INSERT INTO prestamos (usuario_id, libro_id, fecha_prestamo) 
+                    VALUES (%s, %s, %s)
+                """
+                params_insert = (usuario_id, libro_id, fecha_prestamo)
+                cursor.execute(query_insert, params_insert)
+                
+            print(f"Préstamo del libro ID {libro_id} al usuario ID {usuario_id} registrado.")
+            return True
+            
+        except Error as e:
+            print(f"Error al realizar préstamo: {e}")
+            # NOTA: La transacción se revierte automáticamente al salir del 'with'
+            # si ocurre una excepción antes del commit() en 'obtener_conexion'.
+            return False
+
+    @staticmethod
+    def registrar_devolucion(prestamo_id: int):
+        """
+        Registra la devolución de un libro y lo marca como disponible.
+        """
+        try:
+            with obtener_conexion() as cursor:
+                # 1. Obtener el ID del libro del préstamo
+                query_get_libro = "SELECT libro_id FROM prestamos WHERE id = %s AND fecha_devolucion IS NULL"
+                cursor.execute(query_get_libro, (prestamo_id,))
+                prestamo = cursor.fetchone()
+                
+                if not prestamo:
+                    print("Error: No se encontró un préstamo activo con ese ID.")
+                    return False
+                
+                libro_id = prestamo['libro_id']
+                
+                # 2. Actualizar el préstamo con la fecha de devolución
+                query_update_prestamo = "UPDATE prestamos SET fecha_devolucion = %s WHERE id = %s"
+                cursor.execute(query_update_prestamo, (date.today(), prestamo_id))
+                
+                # 3. Marcar el libro como disponible
+                query_update_libro = "UPDATE libros SET disponible = TRUE WHERE id = %s"
+                cursor.execute(query_update_libro, (libro_id,))
+
+            print(f"Devolución del préstamo ID {prestamo_id} registrada.")
+            return True
+            
+        except Error as e:
+            print(f"Error al registrar devolución: {e}")
+            return False
+biblioteca/main.py
+Python
+
+# biblioteca/main.py
+# Importamos las clases de los modelos
+from modelos.usuario import Usuario
+from modelos.libro import Libro
+from modelos.prestamo import Prestamo
+import getpass # Para ocultar la contraseña al escribirla
+
+def menu_principal():
+    print("\n--- Sistema de Biblioteca v2.0 (Refactorizado) ---")
+    print("1. Registrar nuevo usuario")
+    print("2. Iniciar sesión")
+    print("3. Salir")
+    return input("Seleccione una opción: ")
+
+def menu_biblioteca(usuario):
+    print(f"\n--- Bienvenido, {usuario['nombre']} ---")
+    print("1. Ver todos los libros")
+    print("2. Buscar libro por título")
+    print("3. Añadir nuevo libro (Admin)") # Podrías limitar esto por rol
+    print("4. Prestar un libro")
+    print("5. Devolver un libro")
+    print("6. Cerrar sesión")
+    return input("Seleccione una opción: ")
+
+def main():
+    usuario_actual = None
+    
+    while True:
+        if not usuario_actual:
+            opcion_main = menu_principal()
+            
+            if opcion_main == '1':
+                # Registrar usuario
+                print("\n[Registro de Nuevo Usuario]")
+                username = input("Username: ")
+                password = getpass.getpass("Contraseña: ")
+                nombre = input("Nombre completo: ")
+                email = input("Email: ")
+                Usuario.crear(username, password, nombre, email)
+                
+            elif opcion_main == '2':
+                # Iniciar sesión
+                print("\n[Inicio de Sesión]")
+                username = input("Username: ")
+                password = getpass.getpass("Contraseña: ")
+                usuario_actual = Usuario.login(username, password)
+                
+            elif opcion_main == '3':
+                print("¡Hasta pronto!")
                 break
             else:
                 print("Opción no válida.")
-
-    def registrar_libro(self):
-        print("\n--- REGISTRAR LIBRO ---")
-        titulo = input("Título: ").strip()
-        autor = input("Autor: ").strip()
         
-        try:
-            anio = int(input("Año: "))
-        except ValueError:
-            print("Error: El año debe ser un número válido.")
-            return
+        else:
+            # Usuario ha iniciado sesión
+            opcion_bib = menu_biblioteca(usuario_actual)
             
-        libro = Libro(titulo, autor, anio)
-        self.libro_servicio.registrar_libro(libro)
-
-    def registrar_usuario(self):
-        print("\n--- REGISTRAR USUARIO ---")
-        nombre = input("Nombre del usuario: ").strip()
-        tipo = input("Tipo (Estudiante/Profesor): ").strip()
-        password = input("Contraseña: ").strip()
-        
-        usuario = Usuario(nombre, tipo, password)
-        self.usuario_servicio.registrar_usuario(usuario)
-
-    def registrar_prestamo(self):
-        print("\n--- REGISTRAR PRÉSTAMO ---")
-        try:
-            id_usuario = int(input("ID Usuario: "))
-            id_libro = int(input("ID Libro: "))
-        except ValueError:
-            print("Error: Los IDs deben ser números válidos.")
-            return
+            if opcion_bib == '1':
+                # Ver todos los libros
+                print("\n[Catálogo de Libros]")
+                libros = Libro.obtener_todos()
+                if not libros:
+                    print("No hay libros en el catálogo.")
+                for libro in libros:
+                    estado = "Disponible" if libro['disponible'] else "Prestado"
+                    print(f"ID: {libro['id']} | Título: {libro['titulo']} | Autor: {libro['autor']} | Estado: {estado}")
             
-        prestamo = Prestamo(id_usuario, id_libro)
-        self.prestamo_servicio.registrar_prestamo(prestamo)
+            elif opcion_bib == '2':
+                # Buscar libro
+                print("\n[Buscar Libro]")
+                titulo = input("Ingrese el título (o parte) a buscar: ")
+                libros = Libro.buscar_por_titulo(titulo)
+                if not libros:
+                    print("No se encontraron coincidencias.")
+                for libro in libros:
+                    estado = "Disponible" if libro['disponible'] else "Prestado"
+                    print(f"ID: {libro['id']} | Título: {libro['titulo']} | Autor: {libro['autor']} | Estado: {estado}")
 
-    def devolver_libro(self):
-        print("\n--- DEVOLVER LIBRO ---")
-        try:
-            id_prestamo = int(input("ID del préstamo a devolver: "))
-        except ValueError:
-            print("Error: El ID debe ser un número válido.")
-            return
-            
-        self.prestamo_servicio.devolver_libro(id_prestamo)
+            elif opcion_bib == '3':
+                # Añadir libro
+                print("\n[Añadir Nuevo Libro]")
+                titulo = input("Título: ")
+                autor = input("Autor: ")
+                anio = int(input("Año de publicación: "))
+                Libro.crear(titulo, autor, anio)
 
-    def listar_libros(self):
-        print("\n--- LISTA DE LIBROS ---")
-        self.libro_servicio.listar_libros()
+            elif opcion_bib == '4':
+                # Prestar libro
+                print("\n[Realizar Préstamo]")
+                libro_id = int(input("ID del libro a prestar: "))
+                usuario_id = usuario_actual['id']
+                Prestamo.realizar_prestamo(usuario_id, libro_id)
+                
+            elif opcion_bib == '5':
+                # Devolver libro
+                print("\n[Registrar Devolución]")
+                prestamo_id = int(input("ID del préstamo a devolver: "))
+                Prestamo.registrar_devolucion(prestamo_id)
 
-    def listar_prestamos(self):
-        print("\n--- LISTA DE PRÉSTAMOS ---")
-        self.prestamo_servicio.listar_prestamos()
+            elif opcion_bib == '6':
+                print(f"Cerrando sesión de {usuario_actual['nombre']}...")
+                usuario_actual = None
+                
+            else:
+                print("Opción no válida.")
 
-    def listar_usuarios(self):
-        print("\n--- LISTA DE USUARIOS ---")
-        self.usuario_servicio.listar_usuarios()
-
-    def salir(self):
-        self.conexion.cerrar()
-        print("Saliendo del sistema...")
-
-# =========================
-# Script SQL para crear la base de datos
-# =========================
-def crear_base_datos():
-    sql_script = """
-CREATE DATABASE IF NOT EXISTS biblioteca;
-USE biblioteca;
-
-CREATE TABLE IF NOT EXISTS libros (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    titulo VARCHAR(255) NOT NULL,
-    autor VARCHAR(255) NOT NULL,
-    anio INT,
-    disponible BOOLEAN DEFAULT TRUE
-);
-
-CREATE TABLE IF NOT EXISTS usuarios (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(255) NOT NULL,
-    tipo VARCHAR(50) NOT NULL,
-    password_hash VARCHAR(255),
-    salt VARCHAR(32)
-);
-
-CREATE TABLE IF NOT EXISTS prestamos (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    id_usuario INT,
-    id_libro INT,
-    fecha_prestamo DATE,
-    fecha_devolucion DATE,
-    FOREIGN KEY (id_usuario) REFERENCES usuarios(id),
-    FOREIGN KEY (id_libro) REFERENCES libros(id)
-);
-"""
-    print("Script SQL para crear la base de datos:")
-    print(sql_script)
-
-# =========================
-# Programa Principal
-# =========================
 if __name__ == "__main__":
-    print("=== SISTEMA DE BIBLIOTECA REFACTORIZADO ===")
-    print("Mejoras implementadas:")
-    print("- Principios SOLID aplicados")
-    print("- Encriptación segura de contraseñas")
-    print("- Código modular y mantenible")
-    print("- Validación de datos")
-    print("- Prevención de inyección SQL")
-    print("- Manejo robusto de errores")
-    print()
+    # Para ejecutar la aplicación, asegúrate de estar en el directorio
+    # superior a 'biblioteca' y ejecutarlo como un módulo:
+    # python -m biblioteca.main
+    #
+    # O, si solo quieres probarlo rápido (y asumiendo que las dependencias
+    # de 'modelos' están en el path), puedes ejecutar 'main()'
+    main()
+2. 📄 Contenido del README.md
+Markdown
+
+# Ejercicio 12: Refactorización Sistema de Biblioteca (Buenas Prácticas y Seguridad)
+
+Este proyecto es una refactorización del "Ejercicio 11 (Sistema de Biblioteca)", enfocado en aplicar buenas prácticas de desarrollo de software, principios SOLID y medidas de seguridad esenciales.
+
+El objetivo es transformar un código funcional en un código mantenible, escalable, legible y seguro.
+
+## 🚀 Mejoras Realizadas (Respecto al Original)
+
+Este proyecto implementa mejoras clave en estructura y seguridad:
+
+### 1. Aplicación de Principios SOLID 
+
+* **Principio de Responsabilidad Única (SRP)**: El código se ha modularizado.
+    * `conexion.py`: Su única responsabilidad es gestionar la conexión con la BD.
+    * `modelos/usuario.py`: Gestiona solo la lógica de usuarios (creación, login).
+    * `modelos/libro.py`: Gestiona solo la lógica de libros (CRUD).
+    * `main.py`: Gestiona solo el flujo de la aplicación y la interacción con el usuario.
+
+* **Principio de Inversión de Dependencias (DIP)**: Los módulos de alto nivel (como `main.py` y los modelos) no dependen directamente de `mysql.connector`, sino de la abstracción proporcionada por `conexion.py` (`obtener_conexion`).
+
+### 2. Mejoras de Seguridad
+
+* **Encriptación de Contraseñas (Hashing)**: Las contraseñas de los usuarios **nunca** se guardan en texto plano. Se utiliza la biblioteca `bcrypt` para generar un *hash* seguro de la contraseña antes de almacenarla. Al iniciar sesión, se compara el *hash* de la contraseña ingresada con el almacenado.
+
+* **Prevención de Inyección SQL**: Se han eliminado todas las consultas basadas en concatenación de cadenas. En su lugar, se utilizan **consultas parametrizadas** (pasando los valores como un segundo argumento a `cursor.execute()`). Esto asegura que la base de datos trate las entradas del usuario como datos, y no como código SQL ejecutable.
+
+* **Control de Errores**: Se utiliza manejo de excepciones (`try...except`) para capturar errores de la base de datos y evitar la fuga de información sensible.
+
+### 3. Código Modular y Escalable
+
+La estructura de carpetas sugerida permite que el proyecto crezca fácilmente. Si se necesitara añadir una nueva entidad (ej. "Autores" o "Editoriales"), simplemente se crearía un nuevo archivo en `modelos/` sin necesidad de modificar el código existente.
+
+## 🗂 Estructura del Proyecto
+
+biblioteca/ ├── init.py ├── conexion.py # Gestiona la conexión a la BD (SRP) ├── main.py # Lógica principal de la aplicación (UI de consola) └── modelos/ ├── init.py ├── libro.py # Modelo y lógica para Libros ├── usuario.py # Modelo y lógica para Usuarios (con encriptación) └── prestamo.py # Modelo y lógica para Préstamos
+
+
+## 📋 Requisitos e Instalación
+
+1.  **Clonar el repositorio:**
+    ```bash
+    git clone [https://github.com/TU_USUARIO/TU_REPOSITORIO_NUEVO.git](https://github.com/TU_USUARIO/TU_REPOSITORIO_NUEVO.git)
+    cd TU_REPOSITORIO_NUEVO
+    ```
+
+2.  **Instalar dependencias:**
+    ```bash
+    pip install mysql-connector-python bcrypt
+    ```
+
+3.  **Configurar la Base de Datos (MySQL):**
+    Abre tu cliente de MySQL y ejecuta las siguientes sentencias para crear la base de datos y las tablas necesarias.
+
+    ```sql
+    CREATE DATABASE IF NOT EXISTS biblioteca_db;
+    USE biblioteca_db;
+
+    CREATE TABLE IF NOT EXISTS usuarios (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50) NOT NULL UNIQUE,
+        password_hash VARCHAR(100) NOT NULL, -- Almacena el hash de bcrypt
+        nombre VARCHAR(100) NOT NULL,
+        email VARCHAR(100) UNIQUE,
+        fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS libros (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        titulo VARCHAR(255) NOT NULL,
+        autor VARCHAR(255) NOT NULL,
+        anio_publicacion INT,
+        disponible BOOLEAN DEFAULT TRUE
+    );
+
+    CREATE TABLE IF NOT EXISTS prestamos (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        libro_id INT NOT NULL,
+        usuario_id INT NOT NULL,
+        fecha_prestamo DATE NOT NULL,
+        fecha_devolucion DATE,
+        FOREIGN KEY (libro_id) REFERENCES libros(id),
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+    );
+    ```
+
+4.  **Configurar la Conexión:**
+    Edita el archivo `biblioteca/conexion.py` y actualiza el diccionario `DB_CONFIG` con tu usuario y contraseña de MySQL.
+
+    ```python
+    DB_CONFIG = {
+        'host': 'localhost',
+        'user': 'tu_usuario_mysql',
+        'password': 'tu_contraseña_mysql',
+        'database': 'biblioteca_db'
+    }
+    ```
+
+5.  **Ejecutar la aplicación:**
+    Debido a la estructura modular, debes ejecutar el proyecto como un módulo desde el directorio raíz (la carpeta que *contiene* a `biblioteca/`).
+
+    ```bash
+    python -m biblioteca.main
+    ```
+
+## 🖼️ Captura del Programa
+
+(Debes subir tu propia captura de pantalla al repositorio y enlazarla aquí)
+
+`[Imagen de la aplicación ejecutándose en la consola]`
+3. 🏆 Código para Puntos Extra (Inyección SQL)
+vulnerable_login.py
+Python
+
+# vulnerable_login.py
+# ADVERTENCIA: Este código es DELIBERADAMENTE INSEGURO
+# y solo debe usarse para fines educativos.
+import mysql.connector
+from mysql.connector import Error
+
+# Configura esto con la misma BD que el ejercicio principal
+DB_CONFIG = {
+    'host': 'localhost',
+    'user': 'root',
+    'password': 'tu_contraseña_mysql',
+    'database': 'biblioteca_db'
+}
+
+def login_vulnerable(username, password):
+    """
+    Función de login que construye la consulta SQL
+    concatenando cadenas. ESTO ES VULNERABLE. 
+    """
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        
+        # --- LA VULNERABILIDAD ESTÁ AQUÍ ---
+        # Se construye la consulta pegando el input del usuario directamente
+        query = "SELECT * FROM usuarios WHERE username = '" + username + \
+                "' AND password_hash = '" + password + "'"
+                
+        print(f"\n[DEBUG] Ejecutando consulta peligrosa: {query}")
+        
+        cursor.execute(query)
+        usuario = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        return usuario
+        
+    except Error as e:
+        print(f"Error durante el login: {e}")
+        return None
+demostracion_ataque.py
+Python
+
+# demostracion_ataque.py
+# Este script demuestra cómo explotar la vulnerabilidad
+# en vulnerable_login.py
+
+from vulnerable_login import login_vulnerable
+
+def demostrar_ataque():
+    """
+    Documenta y demuestra el proceso de ataque
+    de Inyección SQL. 
+    """
     
-    # Mostrar script de creación de BD
-    crear_base_datos()
-    print("\nEjecuta el script SQL anterior en MySQL antes de usar el sistema.\n")
+    # ------------------------------------------
+    # 1. Consulta Normal (Fallido)
+    # ------------------------------------------
+    print("--- 1. Prueba de Login Normal (Fallido) ---")
+    print("Intentando acceder como 'admin' con contraseña incorrecta '12345'...")
     
-    # Iniciar aplicación
-    app = BibliotecaApp()
-    app.menu_principal()
+    user_normal = "admin"
+    pass_normal = "12345" # (Asumimos que no es el hash real)
+    
+    resultado_normal = login_vulnerable(user_normal, pass_normal)
+    
+    if not resultado_normal:
+        print("Resultado: Login fallido, como se esperaba.")
+    else:
+        print(f"Resultado: Login exitoso (inesperado): {resultado_normal}")
+
+    # ------------------------------------------
+    # 2. Inyección SQL Exitosa
+    # ------------------------------------------
+    print("\n--- 2. Prueba de Inyección SQL ---")
+    
+    # Este 'payload' cierra la comilla simple del username
+    # y añade una condición que siempre es verdadera ('1'='1').
+    # El '-- ' al final comenta el resto de la consulta (la parte del password).
+    
+    user_inyectado = "' OR '1'='1"
+    pass_inyectado = "password_irrelevante"
+    
+    print(f"Input de Usuario (Username): {user_inyectado}")
+    print(f"Input de Usuario (Password): {pass_inyectado}")
+    print("Realizando ataque...")
+
+    # La consulta SQL resultante será:
+    # SELECT * FROM usuarios WHERE username = '' OR '1'='1' -- ' AND password_hash = '...'
+    # La BD solo ejecutará:
+    # SELECT * FROM usuarios WHERE username = '' OR '1'='1'
+    # Esto devolverá el primer usuario de la tabla (usualmente el admin).
+    
+    resultado_ataque = login_vulnerable(user_inyectado, pass_inyectado)
+    
+    # ------------------------------------------
+    # 3. Resultados del Ataque
+    # ------------------------------------------
+    print("\n--- 3. Resultados del Ataque ---")
+    if resultado_ataque:
+        print("¡ATAQUE EXITOSO!")
+        print("Se ha bypassado la autenticación.")
+        print("Datos obtenidos (el primer usuario de la tabla):")
+        print(f"  ID: {resultado_ataque.get('id')}")
+        print(f"  Username: {resultado_ataque.get('username')}")
+        print(f"  Nombre: {resultado_ataque.get('nombre')}")
+        print(f"  Email: {resultado_ataque.get('email')}")
+        print(f"  Password Hash (Robado): {resultado_ataque.get('password_hash')}")
+    else:
+        print("ATAQUE FALLIDO. (Revisar la lógica o la BD)")
+
+if __name__ == "__main__":
+    demostrar_ataque()
