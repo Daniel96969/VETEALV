@@ -9,7 +9,7 @@ class ConexionBD:
     def _init_(self):
         self.host = "localhost"
         self.user = "root"
-        self.password = "toor"
+        self.password = "Toor"
         self.database = "biblioteca2"
         self.conexion = None
 
