@@ -4,13 +4,21 @@ Un sistema de biblioteca desarrollado en Python con conexión a MySQL que implem
 🌟 Características Principales
 Característica	Descripción
 🔐 Autenticación Segura	Sistema de registro e inicio de sesión con contraseñas encriptadas
+
 🗄️ Base de Datos MySQL	Conexión robusta y operaciones eficientes con MySQL
+
 🔒 Encriptación SHA-256	Contraseñas protegidas con hash seguro
+
 👥 Gestión de Usuarios	Administración completa de usuarios del sistema
+
 📖 Gestión de Libros	Control completo del inventario de libros
+
 ⚡ Interfaz Consola	Menús interactivos y fáciles de usar
+
 🛡️ Validaciones	Manejo de errores y validación de datos
+
 🏗️ Estructura del Proyecto
+
 text
 biblioteca_segura/
 │
