@@ -1,45 +1,54 @@
-# SISTEMA DE BIBLIOTECA SEGURO
-📘 Descripción
-Este proyecto implementa un sistema de biblioteca en Python con conexión a MySQL.
-Permite la gestión de usuarios y libros , con autenticación segura mediante contraseñas encriptadas (SHA-256).
+📚 Sistema de Biblioteca Seguro
+Un sistema de biblioteca desarrollado en Python con conexión a MySQL que implementa medidas de seguridad robustas para la gestión de usuarios y libros.
 
-⚙️ Características principales
-Conexión y operaciones con MySQL .
-Encriptación de contraseñas con hash SHA-256 .
-Sistema de autenticación seguro (registro e inicio de sesión).
-Gestión completa de usuarios y libros .
-Menús interactivos en consola.
-Manejo de errores y validaciones de datos.
-🧱 Estructura del proyecto
-📁 biblioteca_segura/
+🌟 Características Principales
+Característica	Descripción
+🔐 Autenticación Segura	Sistema de registro e inicio de sesión con contraseñas encriptadas
+🗄️ Base de Datos MySQL	Conexión robusta y operaciones eficientes con MySQL
+🔒 Encriptación SHA-256	Contraseñas protegidas con hash seguro
+👥 Gestión de Usuarios	Administración completa de usuarios del sistema
+📖 Gestión de Libros	Control completo del inventario de libros
+⚡ Interfaz Consola	Menús interactivos y fáciles de usar
+🛡️ Validaciones	Manejo de errores y validación de datos
+🏗️ Estructura del Proyecto
+text
+biblioteca_segura/
 │
-├── biblioteca.py       # Código principal del sistema
-├── README.md           # Archivo de documentación
-🧩 Clases principales
-🔌ConexionBD
-Administra la conexión con la base de datos MySQL y ejecuta consultas SQL.
+├── 📄 biblioteca.py          # Código principal del sistema
+├── 📄 README.md              # Documentación del proyecto
+└── 📄 requirements.txt       # Dependencias del proyecto
+🧩 Clases Principales
+🔌 ConexionBD
+Maneja la conexión con la base de datos MySQL y ejecución de consultas SQL.
 
-🔐Encriptador
-Maneja la encriptación y verificación de contraseñas usando SHA-256.
+python
+# Ejemplo de conexión
+conexion = ConexionBD(host, usuario, password, database)
+🔐 Encriptador
+Gestiona la encriptación y verificación de contraseñas usando SHA-256.
 
-👤Usuario
-Representa un usuario del sistema con sus atributos, incluyendo contraseña encriptada.
+python
+# Encriptar contraseña
+hash_seguro = Encriptador.encriptar_password("mi_contraseña")
+👤 Usuario
+Representa un usuario del sistema con sus atributos y métodos.
 
-📖Libro
-Administra la información y persistencia de los libros en la base de datos.
+📖 Libro
+Administra la información y persistencia de los libros.
 
-🧠SistemaAutenticacion
-Controla el registro y autenticación de usuarios en el sistema.
+🧠 SistemaAutenticacion
+Controla el registro y autenticación de usuarios de manera segura.
 
-🏛️SistemaBiblioteca
-Clase principal que gestiona los menús e interacción con el usuario.
+🏛️ SistemaBiblioteca
+Clase principal que coordina los menús e interacción con el usuario.
 
-🗄️ Base de datos MySQL
-Antes de ejecutar el sistema, cree la base de datos y tablas necesarias en MySQL:
-
+🗄️ Configuración de la Base de Datos
+Crear Base de Datos y Tablas
+sql
 CREATE DATABASE biblioteca2;
 USE biblioteca2;
 
+-- Tabla de usuarios
 CREATE TABLE usuarios (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
@@ -48,6 +57,7 @@ CREATE TABLE usuarios (
     contrasena_hash VARCHAR(64) NOT NULL
 );
 
+-- Tabla de libros
 CREATE TABLE libros (
     id INT AUTO_INCREMENT PRIMARY KEY,
     titulo VARCHAR(150) NOT NULL,
@@ -55,25 +65,91 @@ CREATE TABLE libros (
     anio INT NOT NULL,
     disponible BOOLEAN DEFAULT TRUE
 );
-🧰 Requisitos
+⚙️ Requisitos del Sistema
+Prerrequisitos
 Python 3.8 o superior
-Servidor MySQL
-Librerías necesarias (instalar con pip):
+
+Servidor MySQL activo
+
+Librerías necesarias:
+
+bash
 pip install mysql-connector-python
-▶️Ejecución del programa
-Clona o descarga este repositorio.
-Asegúrate de que tu base de datos MySQL esté activa.
-Ejecuta el programa:
+Instalación y Ejecución
+Clonar o descargar el repositorio
+
+Configurar la base de datos MySQL con el script proporcionado
+
+Ejecutar el programa:
+
+bash
 python biblioteca.py
-🧑‍💻 Funcionalidades del sistema
-Inicio de sesión / Registro de usuarios
-Gestión de libros (registro y listado)
-Listar usuarios registrados
+🎯 Funcionalidades del Sistema
+🔑 Autenticación
+Registro seguro de nuevos usuarios
+
+Inicio de sesión con credenciales validadas
+
 Cierre de sesión seguro
-🧱 Seguridad
-Contraseñas nunca se almacenan en texto plano.
-Se utiliza el algoritmo de hash SHA-256 para proteger las credenciales.
-Validaciones para evitar registros duplicados o datos inválidos.
-📦 Licencia
-Proyecto de libre uso con fines educativos.
-Creado para fines de práctica de Python + MySQL + Seguridad 
+
+📚 Gestión de Libros
+Registro de nuevos libros en el sistema
+
+Listado completo del inventario
+
+Control de disponibilidad
+
+👥 Administración de Usuarios
+Listado de usuarios registrados
+
+Gestión de tipos de usuario (Estudiante, Profesor, Administrativo)
+
+🛡️ Medidas de Seguridad
+Medida	Implementación
+Contraseñas Encriptadas	Hash SHA-256 para almacenamiento seguro
+Validación de Datos	Verificación de entradas para prevenir errores
+Prevención de Duplicados	Validación de emails únicos en el sistema
+Manejo de Errores	Control de excepciones para mayor estabilidad
+📋 Menús del Sistema
+Menú Principal
+text
+=== SISTEMA DE BIBLIOTECA SEGURO ===
+1. Iniciar Sesión
+2. Registrar Usuario
+3. Salir
+Menú de Usuario
+text
+=== MENÚ USUARIO ===
+1. Registrar Libro
+2. Listar Libros
+3. Listar Usuarios
+4. Cerrar Sesión
+🚀 Uso del Sistema
+Registro: Crear una nueva cuenta con tipo de usuario específico
+
+Autenticación: Iniciar sesión con email y contraseña
+
+Gestión: Acceder a las funcionalidades según permisos
+
+Navegación: Utilizar menús intuitivos para las operaciones
+
+📊 Ejemplo de Flujo
+<img width="1958" height="2447" alt="deepseek_mermaid_20251106_4487a1" src="https://github.com/user-attachments/assets/3dcc8514-6c73-45d9-85d4-3b2e6eaadc00" />
+
+🐛 Solución de Problemas
+Error de Conexión a MySQL
+Verificar que el servidor MySQL esté ejecutándose
+
+Confirmar credenciales de acceso
+
+Validar que la base de datos exista
+
+Problemas de Autenticación
+Revisar que el usuario esté registrado
+
+Verificar que la contraseña sea correcta
+
+Confirmar formato de email válido
+
+📄 Licencia
+Este proyecto es de libre uso con fines educativos. Desarrollado para prácticas de Python + MySQL + Seguridad.
